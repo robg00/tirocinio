@@ -140,6 +140,6 @@ class TestProduceAndConsume:
                 if msg.value is None:
                     continue
                 assert isinstance(msg.value, dict)
-                required = {"sale_id", "user_id", "product_id", "quantity", "unit_price", "event_timestamp"}
+                required = {"sale_id", "user_id", "product_id", "quantity", "unit_price", "total_amount", "event_timestamp"}
                 assert required.issuperset(msg.value.keys())
                 return

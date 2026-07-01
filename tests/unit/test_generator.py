@@ -69,7 +69,7 @@ class TestGenerateUsers:
 class TestGenerateValidEvent:
     def test_returns_dict_with_all_keys(self):
         event = generate_valid_event(1, PRODUCTS, USERS, None)
-        expected = {"sale_id", "user_id", "product_id", "quantity", "unit_price", "event_timestamp"}
+        expected = {"sale_id", "user_id", "product_id", "quantity", "unit_price", "total_amount", "event_timestamp"}
         assert expected.issubset(event.keys())
 
     def test_sale_id_format(self):
@@ -104,7 +104,7 @@ class TestGenerateValidEvent:
         from datetime import datetime, timezone, timedelta
         ts = datetime.now(timezone.utc) - timedelta(hours=5)
         event = generate_valid_event(1, PRODUCTS, USERS, ts)
-        assert event["event_timestamp"] == ts.isoformat()
+        assert event["event_timestamp"] == ts.strftime("%Y-%m-%d %H:%M:%S")
 
     def test_timestamp_is_none_when_not_provided(self):
         event = generate_valid_event(1, PRODUCTS, USERS, None)
@@ -135,7 +135,7 @@ class TestGenerateInvalidEvent:
             missing = {"sale_id", "user_id", "product_id"} - set(event.keys())
             assert len(missing) > 0
         elif error_type == "corrupted_timestamp":
-            assert event["event_timestamp"] == "NOT_A_TIMESTAMP"
+            assert event["event_timestamp"] == "corrupted-timestamp"
 
     def test_missing_field_is_one_of_expected(self):
         found = set()
