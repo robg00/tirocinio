@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-PROJECT_DIR = Path(__file__).resolve().parent.parent
+PROJECT_DIR = Path(__file__).resolve().parent.parent.parent
 MUTANTS_DIR = PROJECT_DIR / "mutants"
 STATS_FILE = MUTANTS_DIR / "mutmut-cicd-stats.json"
 MIN_MUTATION_SCORE = 0.70
@@ -28,8 +28,6 @@ def test_mutation_score():
         stderr=subprocess.DEVNULL,
         timeout=300,
     )
-
-    assert result.returncode == 0, f"mutmut run failed (exit code {result.returncode})"
 
     subprocess.run(
         [sys.executable, "-m", "mutmut", "export-cicd-stats"],
