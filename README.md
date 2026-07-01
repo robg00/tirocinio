@@ -1,58 +1,73 @@
-# Tirocinio - Pipeline E-commerce in Streaming
+# StreamMark — Pipeline E-commerce in Streaming
 
-Pipeline real-time per l'elaborazione di eventi di vendita di un e-commerce, basata su **Apache Kafka** e **Python**.
+Pipeline real-time per la generazione, trasmissione, elaborazione e analisi di eventi di vendita e-commerce, basata su **Python**, **Apache Kafka**, **Apache Flink** e **PostgreSQL** (star schema).
 
 ## Architettura
 
 ```
-Generatore Eventi (Python) → Kafka (topic: sales-events) → Flink (ETL) → Database Analitico (Star Schema)
+Generatore Eventi (Python) → Kafka (topic: sales-events) → Flink SQL (ETL) → PostgreSQL (Star Schema)
 ```
 
 ## Struttura del progetto
 
 ```
 Tirocinio/
-├── docker-compose.yml           # Orchestrazione Kafka + Zookeeper + Kafka UI
+├── docker-compose.yml           # Orchestrazione (Kafka, PostgreSQL, Flink, Kafka UI)
 ├── pyproject.toml               # Dipendenze e configurazione tool
 ├── config/
 │   ├── products.json            # Catalogo prodotti (24 item, 4 categorie)
 │   └── generator_config.py      # Parametri di generazione eventi
 ├── scripts/
 │   └── event_generator.py       # Generatore di eventi di vendita
+├── sql/
+│   ├── star_schema.sql          # DDL database analitico (dim + fact)
+│   ├── flink_etl.sql            # ETL Flink completo (DDL + INSERT)
+│   ├── flink_ddl.sql            # DDL sorgente/sink Flink
+│   ├── flink_insert.sql         # INSERT ETL Flink
+│   ├── flink_test.sql           # Test con datagen
+│   ├── seed_dim_product.sql     # Seed prodotti (24)
+│   ├── seed_dim_date.sql        # Seed date (730)
+│   └── seed_dim_user.sql        # Seed utenti (100)
+├── flink/
+│   └── Dockerfile               # Flink con connector JARs
 ├── docs/
 │   ├── report.typ               # Report tecnico (Typst)
-│   ├── report.pdf               # Report compilato
-│   └── mutation-results.json    # Risultati mutation testing
+│   └── report.pdf               # Report compilato
 └── tests/
-    ├── test_generator.py        # Test unitari (25)
-    ├── test_system.py           # Test di sistema (7)
-    ├── test_integration.py      # Test di integrazione (6)
-    ├── test_performance.py      # Benchmark prestazionali (5)
-    └── test_mutation.py         # Test mutation score (1)
+    ├── unit/
+    │   └── test_generator.py    # Test unitari (25)
+    ├── integration/
+    │   ├── test_system.py       # Test di sistema (7)
+    │   └── test_integration.py  # Test di integrazione (6)
+    └── quality/
+        ├── test_performance.py  # Benchmark prestazionali (5)
+        └── test_mutation.py     # Test mutation score (1)
 ```
 
 ## Prerequisiti
 
-- **Docker** + **Docker Compose** (per Kafka)
+- **Docker** + **Docker Compose** (per Kafka, PostgreSQL, Flink)
 - **Python 3.14+**
 - **uv** (gestione dipendenze)
 
 ## Avvio rapido
 
-### 1. Avviare Kafka
+### 1. Avviare i servizi
 
 ```bash
 docker compose up -d
 ```
 
 Servizi avviati:
-| Servizio | Porta |
+| Servizio | Porta host |
 |---|---|
 | Kafka Broker | `9092` |
 | Zookeeper | `2181` |
 | Kafka UI | `8080` |
+| PostgreSQL | `5433` |
+| Flink JobManager | `8081` |
 
-### 2. Creare il topic (automatico con `KAFKA_NUM_PARTITIONS=3`)
+### 2. Creare il topic
 
 ```bash
 docker compose exec kafka kafka-topics --create \
@@ -62,21 +77,32 @@ docker compose exec kafka kafka-topics --create \
   --replication-factor 1
 ```
 
-### 3. Attivare l'ambiente virtuale
+### 3. Inizializzare il database (star schema + seed)
+
+```bash
+cat sql/star_schema.sql | docker compose exec -T postgres psql -U streammark -d streammark
+cat sql/seed_dim_product.sql | docker compose exec -T postgres psql -U streammark -d streammark
+cat sql/seed_dim_date.sql | docker compose exec -T postgres psql -U streammark -d streammark
+cat sql/seed_dim_user.sql | docker compose exec -T postgres psql -U streammark -d streammark
+```
+
+### 4. Avviare il job Flink ETL
+
+```bash
+docker compose exec sql-client bash -c \
+  '/opt/flink/bin/sql-client.sh -D rest.address=flink-jobmanager -D rest.port=8081 -f /sql/flink_etl.sql'
+```
+
+### 5. Avviare il generatore eventi
 
 ```bash
 source .venv/bin/activate
-```
-
-### 4. Avviare il generatore eventi
-
-```bash
 PYTHONPATH=. python scripts/event_generator.py
 ```
 
 Il generatore produce eventi JSON sul topic `sales-events` fino a Ctrl+C.
 
-### 5. Verificare i dati su Kafka
+### 6. Verificare i dati
 
 ```bash
 docker compose exec kafka kafka-console-consumer \
@@ -86,43 +112,45 @@ docker compose exec kafka kafka-console-consumer \
   --max-messages 5
 ```
 
-Oppure via interfaccia web: [http://localhost:8080](http://localhost:8080)
+Oppure via interfaccia web:
+- Kafka UI: http://localhost:8080
+- Flink Dashboard: http://localhost:8081
 
 ## Test
 
-Sono implementate 5 categorie di test, eseguibili separatamente. Per tutti i comandi, assicurarsi che il cluster Kafka sia attivo (`docker compose up -d`) e impostare `PYTHONPATH=.` per la corretta risoluzione dei moduli.
+Sono implementate 5 categorie di test. Per tutti i comandi, assicurarsi che il cluster Kafka sia attivo (`docker compose up -d`) e impostare `PYTHONPATH=.`.
 
 ### Unit test (25)
 ```bash
-PYTHONPATH=. uv run pytest tests/test_generator.py -v
+PYTHONPATH=. uv run pytest tests/unit/test_generator.py -v
 ```
 
 ### Test di sistema (7)
 ```bash
-PYTHONPATH=. uv run pytest tests/test_system.py -v
+PYTHONPATH=. uv run pytest tests/integration/test_system.py -v
 ```
 
 ### Test di integrazione (6)
 ```bash
-PYTHONPATH=. uv run pytest tests/test_integration.py -v
+PYTHONPATH=. uv run pytest tests/integration/test_integration.py -v
 ```
 
 ### Benchmark prestazionali (5)
 ```bash
-PYTHONPATH=. uv run pytest tests/test_performance.py -v \
+PYTHONPATH=. uv run pytest tests/quality/test_performance.py -v \
   --benchmark-columns=min,max,mean,stddev,median,iqr,rounds,iterations
 ```
 
-### Mutation test (1) — richiede ~60 secondi
+### Mutation test (1) — richiede ~90 secondi
 ```bash
-PYTHONPATH=. uv run pytest tests/test_mutation.py -v -m mutation
+PYTHONPATH=. uv run pytest tests/quality/test_mutation.py -v -m mutation
 ```
 
 ### Tutti i test (esclusi mutation e benchmark)
 ```bash
 PYTHONPATH=. uv run pytest -v \
-  --ignore=tests/test_performance.py \
-  --ignore=tests/test_mutation.py
+  --ignore=tests/quality/test_performance.py \
+  --ignore=tests/quality/test_mutation.py
 ```
 
 ### Tutti i test con coverage
@@ -130,10 +158,21 @@ PYTHONPATH=. uv run pytest -v \
 PYTHONPATH=. uv run pytest --cov=scripts --cov-report=term-missing
 ```
 
-### Report dei risultati
+## Utilizzo CLI
 
-Un dashboard HTML con tutti i risultati strutturati è disponibile in `docs/test-report.html`.
-I dati grezzi in formato JSON sono salvati nella directory `docs/` per ogni categoria di test.
+Il generatore accetta parametri opzionali da riga di comando:
+
+```bash
+PYTHONPATH=. python scripts/event_generator.py \
+  --error-rate 0.15 \
+  --max-events 1000 \
+  --topic sales-events \
+  --bootstrap-servers localhost:9092 \
+  --num-users 100
+```
+
+Tutti i parametri hanno default dal file `config/generator_config.py`.
+Usa `--help` per l'elenco completo.
 
 ## Specifiche dei dati
 
@@ -146,18 +185,28 @@ I dati grezzi in formato JSON sono salvati nella directory `docs/` per ogni cate
   "product_id": 303,
   "quantity": 2,
   "unit_price": 96.30,
-  "event_timestamp": "2026-06-23T15:30:00+00:00"
+  "total_amount": 192.60,
+  "event_timestamp": "2026-06-23 15:30:00"
 }
 ```
 
 ### Anomalie iniettate (~10% degli eventi)
 
 | Tipo | Descrizione |
-|---|---|---|
+|---|---|
 | `quantity_zero` | quantity = 0 |
 | `negative_price` | unit_price negativo |
 | `missing_field` | sale_id, user_id o product_id rimossi |
-| `corrupted_timestamp` | event_timestamp = "NOT_A_TIMESTAMP" |
+| `corrupted_timestamp` | event_timestamp = `"corrupted-timestamp"` |
+
+## Star Schema
+
+Il database analitico segue il modello a star schema con:
+
+- **dim_product** (24 prodotti, 4 categorie: Electronics, Home, Clothing, Sports)
+- **dim_user** (100 utenti, 3 segmenti: new, regular, vip)
+- **dim_date** (730 giorni, 2025-01-01 — 2026-12-31)
+- **fact_sales** (eventi ETL validati, con FK verso le dimensioni)
 
 ## Licenza
 
