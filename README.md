@@ -6,6 +6,8 @@ Pipeline real-time per la generazione, trasmissione, elaborazione e analisi di e
 
 ```
 Generatore Eventi (Python) → Kafka (topic: sales-events) → Flink SQL (ETL) → PostgreSQL (Star Schema)
+                                                             ↓
+                                                    topic: invalid-sales-events (DLQ)
 ```
 
 ## Struttura del progetto
@@ -67,13 +69,19 @@ Servizi avviati:
 | PostgreSQL | `5433` |
 | Flink JobManager | `8081` |
 
-### 2. Creare il topic
+### 2. Creare i topic
 
 ```bash
 docker compose exec kafka kafka-topics --create \
   --topic sales-events \
   --bootstrap-server localhost:9092 \
   --partitions 3 \
+  --replication-factor 1
+
+docker compose exec kafka kafka-topics --create \
+  --topic invalid-sales-events \
+  --bootstrap-server localhost:9092 \
+  --partitions 1 \
   --replication-factor 1
 ```
 
@@ -93,6 +101,8 @@ docker compose exec sql-client bash -c \
   '/opt/flink/bin/sql-client.sh -D rest.address=flink-jobmanager -D rest.port=8081 -f /sql/flink_etl.sql'
 ```
 
+> **Nota**: i connector JAR (`flink-sql-connector-kafka`, `flink-connector-jdbc`, `postgresql-42.7.5`) sono già inclusi nell'immagine Docker personalizzata (`flink/Dockerfile`).
+
 ### 5. Avviare il generatore eventi
 
 ```bash
@@ -105,8 +115,16 @@ Il generatore produce eventi JSON sul topic `sales-events` fino a Ctrl+C.
 ### 6. Verificare i dati
 
 ```bash
+# Verifica eventi validi (topic principale)
 docker compose exec kafka kafka-console-consumer \
   --topic sales-events \
+  --bootstrap-server localhost:9092 \
+  --from-beginning \
+  --max-messages 5
+
+# Verifica eventi scartati (DLQ)
+docker compose exec kafka kafka-console-consumer \
+  --topic invalid-sales-events \
   --bootstrap-server localhost:9092 \
   --from-beginning \
   --max-messages 5
@@ -207,6 +225,23 @@ Il database analitico segue il modello a star schema con:
 - **dim_user** (100 utenti, 3 segmenti: new, regular, vip)
 - **dim_date** (730 giorni, 2025-01-01 — 2026-12-31)
 - **fact_sales** (eventi ETL validati, con FK verso le dimensioni)
+
+### Colonne derivate (arricchimento Flink ETL)
+
+| Colonna | Descrizione |
+|---|---|
+| `value_band` | Fascia valore: `low` (< 50), `medium` (50–200), `high` (≥ 200) |
+| `sale_hour` | Ora del giorno (0–23) estratta dal timestamp |
+| `sale_minute` | Minuto (0–59) estratto dal timestamp |
+| `day_of_week` | Nome del giorno della settimana (es. `Monday`) |
+
+### Dead Letter Queue
+
+Gli eventi non validi (quantity = 0, negative_price, missing_field, corrupted_timestamp) vengono deviati al topic Kafka `invalid-sales-events` con una colonna `error_reason` che indica il motivo dello scarto.
+
+### Fault Tolerance (Flink)
+
+Il job Flink ETL è configurato con **checkpointing EXACTLY_ONCE** (intervallo 1 minuto) e **watermark** (toleranza 5 secondi out-of-order) per garantire la correttezza in caso di crash e il processing in event time.
 
 ## Licenza
 
