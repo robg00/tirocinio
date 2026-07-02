@@ -37,9 +37,15 @@ CREATE TABLE fact_sales (
     quantity        INTEGER        NOT NULL CHECK (quantity > 0),
     unit_price      DECIMAL(10, 2) NOT NULL CHECK (unit_price > 0),
     total_amount    DECIMAL(12, 2) NOT NULL CHECK (total_amount > 0),
+    value_band      VARCHAR(10)    NOT NULL CHECK (value_band IN ('low', 'medium', 'high')),
+    sale_hour       SMALLINT       NOT NULL CHECK (sale_hour >= 0 AND sale_hour <= 23),
+    sale_minute     SMALLINT       NOT NULL CHECK (sale_minute >= 0 AND sale_minute <= 59),
+    day_of_week     VARCHAR(10)    NOT NULL,
     event_timestamp TIMESTAMPTZ    NOT NULL
 );
 
-CREATE INDEX idx_fact_user    ON fact_sales(user_id);
-CREATE INDEX idx_fact_product ON fact_sales(product_id);
-CREATE INDEX idx_fact_date    ON fact_sales(date_id);
+CREATE INDEX idx_fact_user        ON fact_sales(user_id);
+CREATE INDEX idx_fact_product     ON fact_sales(product_id);
+CREATE INDEX idx_fact_date        ON fact_sales(date_id);
+CREATE INDEX idx_fact_value_band  ON fact_sales(value_band);
+CREATE INDEX idx_fact_day_of_week ON fact_sales(day_of_week);
