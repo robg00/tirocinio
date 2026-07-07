@@ -5,9 +5,7 @@ Pipeline real-time per la generazione, trasmissione, elaborazione e analisi di e
 ## Architettura
 
 ```
-Generatore Eventi (Python) → Kafka (topic: sales-events) → Flink SQL (ETL) → PostgreSQL (Star Schema)
-                                                             ↓
-                                                    topic: invalid-sales-events (DLQ)
+Generatore Eventi (Python) → Kafka (topic: sales-events) → PyFlink (ETL, window 30s) → PostgreSQL (agg_sales_windowed)
 ```
 
 ## Struttura del progetto
@@ -21,17 +19,18 @@ Tirocinio/
 │   └── generator_config.py      # Parametri di generazione eventi
 ├── scripts/
 │   └── event_generator.py       # Generatore di eventi di vendita
+├── src/
+│   └── etl/
+│       ├── __init__.py
+│       ├── agg_tables.sql       # DDL tabella aggregata PostgreSQL
+│       └── pyflink_etl.py       # Job ETL PyFlink (windowed aggregations)
 ├── sql/
 │   ├── star_schema.sql          # DDL database analitico (dim + fact)
-│   ├── flink_etl.sql            # ETL Flink completo (DDL + INSERT)
-│   ├── flink_ddl.sql            # DDL sorgente/sink Flink
-│   ├── flink_insert.sql         # INSERT ETL Flink
-│   ├── flink_test.sql           # Test con datagen
 │   ├── seed_dim_product.sql     # Seed prodotti (24)
 │   ├── seed_dim_date.sql        # Seed date (730)
 │   └── seed_dim_user.sql        # Seed utenti (100)
 ├── flink/
-│   └── Dockerfile               # Flink con connector JARs
+│   └── Dockerfile               # Flink con Python, PyFlink e connector JARs
 ├── docs/
 │   ├── report.typ               # Report tecnico (Typst)
 │   └── report.pdf               # Report compilato
@@ -94,16 +93,21 @@ cat sql/seed_dim_date.sql | docker compose exec -T postgres psql -U streammark -
 cat sql/seed_dim_user.sql | docker compose exec -T postgres psql -U streammark -d streammark
 ```
 
-### 4. Avviare il job Flink ETL
+### 4. Avviare il job PyFlink ETL
 
 ```bash
-docker compose exec sql-client bash -c \
-  '/opt/flink/bin/sql-client.sh -D rest.address=flink-jobmanager -D rest.port=8081 -f /sql/flink_etl.sql'
+docker compose exec flink-jobmanager /opt/flink/bin/flink run -py /src/etl/pyflink_etl.py
 ```
 
 > **Nota**: i connector JAR (`flink-sql-connector-kafka`, `flink-connector-jdbc`, `postgresql-42.7.5`) sono già inclusi nell'immagine Docker personalizzata (`flink/Dockerfile`).
 
-### 5. Avviare il generatore eventi
+### 5. Creare la tabella aggregata PostgreSQL
+
+```bash
+cat src/etl/agg_tables.sql | docker compose exec -T postgres psql -U streammark -d streammark
+```
+
+### 6. Avviare il generatore eventi
 
 ```bash
 source .venv/bin/activate
@@ -112,19 +116,15 @@ PYTHONPATH=. python scripts/event_generator.py
 
 Il generatore produce eventi JSON sul topic `sales-events` fino a Ctrl+C.
 
-### 6. Verificare i dati
+### 7. Verificare i dati
 
 ```bash
-# Verifica eventi validi (topic principale)
+# Verifica dati aggregati su PostgreSQL
+docker compose exec -T postgres psql -U streammark -d streammark -c "SELECT * FROM agg_sales_windowed;"
+
+# Verifica eventi raw su Kafka
 docker compose exec kafka kafka-console-consumer \
   --topic sales-events \
-  --bootstrap-server localhost:9092 \
-  --from-beginning \
-  --max-messages 5
-
-# Verifica eventi scartati (DLQ)
-docker compose exec kafka kafka-console-consumer \
-  --topic invalid-sales-events \
   --bootstrap-server localhost:9092 \
   --from-beginning \
   --max-messages 5
@@ -226,22 +226,18 @@ Il database analitico segue il modello a star schema con:
 - **dim_date** (730 giorni, 2025-01-01 — 2026-12-31)
 - **fact_sales** (eventi ETL validati, con FK verso le dimensioni)
 
-### Colonne derivate (arricchimento Flink ETL)
+### Tabella aggregata (PyFlink ETL, finestra 30s)
 
 | Colonna | Descrizione |
 |---|---|
-| `value_band` | Fascia valore: `low` (< 50), `medium` (50–200), `high` (≥ 200) |
-| `sale_hour` | Ora del giorno (0–23) estratta dal timestamp |
-| `sale_minute` | Minuto (0–59) estratto dal timestamp |
-| `day_of_week` | Nome del giorno della settimana (es. `Monday`) |
+| `sale_count` | Numero di vendite nella finestra |
+| `total_revenue` | Fatturato totale nella finestra |
+| `avg_order_value` | Valore medio ordine nella finestra |
+| `window_end` | Timestamp di fine finestra tumbling |
 
-### Dead Letter Queue
-
-Gli eventi non validi (quantity = 0, negative_price, missing_field, corrupted_timestamp) vengono deviati al topic Kafka `invalid-sales-events` con una colonna `error_reason` che indica il motivo dello scarto.
-
-### Fault Tolerance (Flink)
-
-Il job Flink ETL è configurato con **checkpointing EXACTLY_ONCE** (intervallo 1 minuto) e **watermark** (toleranza 5 secondi out-of-order) per garantire la correttezza in caso di crash e il processing in event time.
+La tabella `agg_sales_windowed` viene popolata dal job PyFlink
+che consuma eventi da Kafka, applica una finestra tumbling di 30
+secondi e scrive i risultati aggregati in PostgreSQL via JDBC.
 
 ## Licenza
 
