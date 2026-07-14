@@ -1,58 +1,78 @@
-from pyflink.table import EnvironmentSettings, TableEnvironment
+from pyflink.common import WatermarkStrategy
+from pyflink.common.serialization import SimpleStringSchema
+from pyflink.common.typeinfo import Types
+from pyflink.datastream import StreamExecutionEnvironment
+from pyflink.datastream.connectors.kafka import KafkaSource, KafkaSink, \
+    KafkaRecordSerializationSchema, DeliveryGuarantee, KafkaOffsetsInitializer
+from pyflink.datastream.functions import FlatMapFunction
+import json
+import os
+
+from sales_splitter import split_event
+
+VALID = 0
+INVALID = 1
+
+
+class SalesSplitter(FlatMapFunction):
+    def flat_map(self, value):
+        event = json.loads(value)
+        for tag_name, data in split_event(event):
+            routing = VALID if tag_name == "valid" else INVALID
+            yield (routing, json.dumps(data))
 
 
 def main():
-    env_settings = EnvironmentSettings.in_streaming_mode()
-    t_env = TableEnvironment.create(env_settings)
+    env = StreamExecutionEnvironment.get_execution_environment()
+    env.set_parallelism(1)
 
-    t_env.execute_sql("""
-        CREATE TABLE sales_events_kafka (
-            sale_id         STRING,
-            user_id         STRING,
-            product_id      INT,
-            quantity        INT,
-            unit_price      DECIMAL(10, 2),
-            total_amount    DECIMAL(12, 2),
-            event_timestamp STRING,
-            proc_time AS PROCTIME()
-        ) WITH (
-            'connector' = 'kafka',
-            'topic' = 'sales-events',
-            'properties.bootstrap.servers' = 'kafka:29092',
-            'properties.group.id' = 'pyflink-table-group',
-            'format' = 'json',
-            'scan.startup.mode' = 'latest-offset',
-            'json.fail-on-missing-field' = 'false',
-            'json.ignore-parse-errors' = 'true'
-        )
-    """)
+    group_id = os.environ.get("GROUP_ID", "etl-group")
 
-    t_env.execute_sql("""
-        CREATE TABLE agg_sales_windowed_sink (
-            sale_count      INT,
-            total_revenue   DECIMAL(12, 2),
-            avg_order_value DECIMAL(10, 2),
-            window_end      TIMESTAMP(3)
-        ) WITH (
-            'connector' = 'jdbc',
-            'url' = 'jdbc:postgresql://postgres:5432/streammark',
-            'table-name' = 'agg_sales_windowed',
-            'username' = 'streammark',
-            'password' = 'streammark'
-        )
-    """)
+    kafka_source = KafkaSource.builder() \
+        .set_bootstrap_servers("kafka:29092") \
+        .set_topics("sales-events") \
+        .set_group_id(group_id) \
+        .set_starting_offsets(KafkaOffsetsInitializer.earliest()) \
+        .set_value_only_deserializer(SimpleStringSchema()) \
+        .build()
 
-    t_env.execute_sql("""
-        INSERT INTO agg_sales_windowed_sink
-        SELECT
-            CAST(COUNT(*) AS INT) AS sale_count,
-            CAST(SUM(total_amount) AS DECIMAL(12, 2)) AS total_revenue,
-            CAST(AVG(total_amount) AS DECIMAL(10, 2)) AS avg_order_value,
-            TUMBLE_END(proc_time, INTERVAL '30' SECOND) AS window_end
-        FROM sales_events_kafka
-        WHERE total_amount IS NOT NULL AND quantity > 0
-        GROUP BY TUMBLE(proc_time, INTERVAL '30' SECOND)
-    """).wait()
+    tagged = env \
+        .from_source(kafka_source, WatermarkStrategy.no_watermarks(), "Kafka Source") \
+        .flat_map(SalesSplitter(), output_type=Types.TUPLE([Types.INT(), Types.STRING()]))
+
+    kafka_sink_valid = KafkaSink.builder() \
+        .set_bootstrap_servers("kafka:29092") \
+        .set_record_serializer(
+            KafkaRecordSerializationSchema.builder()
+                .set_topic("valid-sales")
+                .set_value_serialization_schema(SimpleStringSchema())
+                .build()
+        ) \
+        .set_delivery_guarantee(DeliveryGuarantee.AT_LEAST_ONCE) \
+        .build()
+
+    kafka_sink_invalid = KafkaSink.builder() \
+        .set_bootstrap_servers("kafka:29092") \
+        .set_record_serializer(
+            KafkaRecordSerializationSchema.builder()
+                .set_topic("invalid-sales-events")
+                .set_value_serialization_schema(SimpleStringSchema())
+                .build()
+        ) \
+        .set_delivery_guarantee(DeliveryGuarantee.AT_LEAST_ONCE) \
+        .build()
+
+    tagged \
+        .filter(lambda x: x[0] == VALID) \
+        .map(lambda x: x[1], output_type=Types.STRING()) \
+        .sink_to(kafka_sink_valid)
+
+    tagged \
+        .filter(lambda x: x[0] != VALID) \
+        .map(lambda x: x[1], output_type=Types.STRING()) \
+        .sink_to(kafka_sink_invalid)
+
+    env.execute("ETL Sales Job")
 
 
 if __name__ == "__main__":
