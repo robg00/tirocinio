@@ -76,7 +76,7 @@ class TestGeneratorIntegration:
 
     def test_event_timestamp_format(self, collected_events):
         import re
-        pattern = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}")
+        pattern = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}")
         for event in collected_events:
             if not event.get("event_timestamp") or event["event_timestamp"] == "corrupted-timestamp":
                 continue

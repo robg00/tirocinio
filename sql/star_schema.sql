@@ -30,7 +30,7 @@ CREATE TABLE dim_date (
 );
 
 CREATE TABLE fact_sales (
-    sale_id         VARCHAR(30)    PRIMARY KEY,
+    sale_id         VARCHAR(36)    PRIMARY KEY,
     user_id         VARCHAR(20)    NOT NULL REFERENCES dim_user(user_id),
     product_id      INTEGER        NOT NULL REFERENCES dim_product(product_id),
     date_id         DATE           NOT NULL REFERENCES dim_date(date_id),

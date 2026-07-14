@@ -7,3 +7,5 @@ htmlcov/
 mutants/
 .coverage
 output/
+src/tirocinio.egg-info/
+src/etl/etl-job.zip

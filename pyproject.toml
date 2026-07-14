@@ -1,22 +1,32 @@
 [project]
 name = "tirocinio"
 version = "0.1.0"
-requires-python = ">=3.14"
+requires-python = "==3.12.*"
 dependencies = [
-    "faker>=40.23.0",
+    "apache-flink>=1.9.3",
     "kafka-python>=3.0.4",
-    "mutmut>=3.6.0",
     "numpy>=2.5.0",
-    "pytest>=9.1.1",
-    "pytest-benchmark>=5.2.3",
-    "pytest-cov>=7.1.0",
 ]
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.mutmut]
-source_paths = ["scripts/"]
+source_paths = ["scripts/", "src/etl/"]
 also_copy = ["config/"]
+pytest_add_cli_args_test_selection = ["tests/unit/etl/test_sales_splitter.py"]
 
 [tool.pytest.ini_options]
 markers = [
     "mutation: mutation score test (esegue mutmut sul codice)",
+    "system: test di sistema con Docker + Kafka + Flink",
+]
+
+[dependency-groups]
+dev = [
+    "faker>=40.23.0",
+    "mutmut>=3.6.0",
+    "pytest>=9.1.1",
+    "pytest-benchmark>=5.2.3",
+    "pytest-cov>=7.1.0",
 ]
