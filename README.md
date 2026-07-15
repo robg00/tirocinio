@@ -30,7 +30,7 @@ Principio chiave: **Kafka come unico intermediario** — Flink non scrive mai di
 
 ```
 Tirocinio/
-├── docker-compose.yml               # Orchestrazione (Kafka, Flink, PostgreSQL, Kafka UI)
+├── docker-compose.yml               # Orchestrazione (Kafka, Flink, PostgreSQL, Kafka UI, pgAdmin)
 ├── pyproject.toml                   # Dipendenze e configurazione
 ├── config/
 │   ├── products.json                # Catalogo prodotti (24 item, 4 categorie)
@@ -92,6 +92,7 @@ docker compose up -d
 | Kafka Broker | `9092` |
 | Zookeeper | `2181` |
 | Kafka UI | `8080` |
+| pgAdmin | `5050` |
 | PostgreSQL | `5433` |
 | Flink JobManager | `8081` |
 
@@ -172,6 +173,12 @@ docker compose exec kafka kafka-console-consumer \
   --topic valid-sales --bootstrap-server localhost:9092 \
   --from-beginning --max-messages 3
 ```
+
+### 8. Esplorare con pgAdmin
+
+Apri http://localhost:5050, login con `admin@tirocinio.it` / `admin`, e registra il server PostgreSQL:
+
+- **Host**: `postgres`, **Port**: `5432`, **Database**: `streammark`, **User**: `streammark`, **Password**: `streammark`
 
 ## Test
 

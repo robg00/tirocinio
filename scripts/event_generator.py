@@ -1,8 +1,12 @@
 import argparse
 import json
 import random
+import sys
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from faker import Faker
 from kafka import KafkaProducer
