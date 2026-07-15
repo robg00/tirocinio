@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from pyflink.common import WatermarkStrategy
 from pyflink.common.serialization import SimpleStringSchema
 from pyflink.common.typeinfo import Types
@@ -9,6 +11,21 @@ from pyflink.common.time import Time
 from pyflink.datastream.window import SlidingProcessingTimeWindows
 import json
 import os
+
+from postgres_writer import PostgresWriter
+
+
+AGG_SQL = (
+    "INSERT INTO agg_sales_windowed (sale_count, total_revenue, avg_order_value) "
+    "VALUES %s"
+)
+
+
+def _agg_row(value):
+    e = json.loads(value)
+    return (e["sale_count"],
+            Decimal(str(e["total_revenue"])),
+            Decimal(str(e["avg_order_value"])))
 
 
 class SalesStatsAggregator(AggregateFunction):
@@ -74,7 +91,10 @@ def main():
         .set_delivery_guarantee(DeliveryGuarantee.AT_LEAST_ONCE) \
         .build()
 
-    ds.sink_to(kafka_sink)
+    ds \
+        .map(PostgresWriter(AGG_SQL, _agg_row), output_type=Types.STRING()) \
+        .sink_to(kafka_sink)
+
     env.execute("Aggregation Windowed Job")
 
 

@@ -2,10 +2,13 @@ from pyflink.common import WatermarkStrategy
 from pyflink.common.serialization import SimpleStringSchema
 from pyflink.common.typeinfo import Types
 from pyflink.datastream import StreamExecutionEnvironment
-from pyflink.datastream.connectors.kafka import KafkaSource, KafkaSink, KafkaRecordSerializationSchema, DeliveryGuarantee, KafkaOffsetsInitializer
+from pyflink.datastream.connectors.kafka import KafkaSource, KafkaSink, \
+    KafkaRecordSerializationSchema, DeliveryGuarantee, KafkaOffsetsInitializer
 from pyflink.datastream.functions import FlatMapFunction
 import json
 import os
+
+from postgres_writer import PostgresWriter
 
 ANOMALY_MAP = {
     "missing_field": 1,
@@ -13,6 +16,19 @@ ANOMALY_MAP = {
     "quantity_zero": 3,
     "corrupted_timestamp": 4,
 }
+
+ANOMALY_ALERT_SQL = (
+    "INSERT INTO anomaly_alerts (sale_id, anomaly_type, anomaly_code, event_timestamp) "
+    "VALUES %s"
+)
+
+
+def _anomaly_alert_row(value):
+    e = json.loads(value)
+    return (e.get("sale_id", "N/A"),
+            e.get("anomaly_type", "unknown"),
+            e.get("anomaly_code", 0),
+            e.get("event_timestamp", "N/A"))
 
 
 class AnomalyClassifier(FlatMapFunction):
@@ -60,7 +76,11 @@ def main():
         .set_delivery_guarantee(DeliveryGuarantee.AT_LEAST_ONCE) \
         .build()
 
-    ds.sink_to(kafka_sink)
+    ds \
+        .map(PostgresWriter(ANOMALY_ALERT_SQL, _anomaly_alert_row),
+             output_type=Types.STRING()) \
+        .sink_to(kafka_sink)
+
     env.execute("Anomaly Detection Job")
 
 

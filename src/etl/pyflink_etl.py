@@ -1,17 +1,51 @@
+from decimal import Decimal
+
 from pyflink.common import WatermarkStrategy
 from pyflink.common.serialization import SimpleStringSchema
 from pyflink.common.typeinfo import Types
 from pyflink.datastream import StreamExecutionEnvironment
 from pyflink.datastream.connectors.kafka import KafkaSource, KafkaSink, \
     KafkaRecordSerializationSchema, DeliveryGuarantee, KafkaOffsetsInitializer
-from pyflink.datastream.functions import FlatMapFunction
+from pyflink.datastream.functions import FlatMapFunction, MapFunction
 import json
 import os
 
+from postgres_writer import PostgresWriter
 from sales_splitter import split_event
 
 VALID = 0
 INVALID = 1
+
+
+def _fact_sale_row(value):
+    e = json.loads(value)
+    return (e["sale_id"], e["user_id"], e["product_id"],
+            e["date_id"], e["quantity"],
+            Decimal(str(e["unit_price"])),
+            Decimal(str(e["total_amount"])),
+            e["value_band"], e["sale_hour"], e["sale_minute"],
+            e["day_of_week"], e["event_timestamp"])
+
+
+FACT_SALE_SQL = (
+    "INSERT INTO fact_sales (sale_id, user_id, product_id, date_id, "
+    "quantity, unit_price, total_amount, value_band, sale_hour, "
+    "sale_minute, day_of_week, event_timestamp) "
+    "VALUES %s ON CONFLICT (sale_id) DO NOTHING"
+)
+
+
+def _anomaly_row(value):
+    e = json.loads(value)
+    return (e.get("sale_id", "N/A"),
+            e.get("error_reason", "unknown"),
+            e.get("event_timestamp", "N/A"))
+
+
+ANOMALY_SQL = (
+    "INSERT INTO anomaly_alerts (sale_id, anomaly_type, event_timestamp) "
+    "VALUES %s"
+)
 
 
 class SalesSplitter(FlatMapFunction):
@@ -62,14 +96,22 @@ def main():
         .set_delivery_guarantee(DeliveryGuarantee.AT_LEAST_ONCE) \
         .build()
 
-    tagged \
+    valid_stream = tagged \
         .filter(lambda x: x[0] == VALID) \
-        .map(lambda x: x[1], output_type=Types.STRING()) \
+        .map(lambda x: x[1], output_type=Types.STRING())
+
+    invalid_stream = tagged \
+        .filter(lambda x: x[0] != VALID) \
+        .map(lambda x: x[1], output_type=Types.STRING())
+
+    valid_stream \
+        .map(PostgresWriter(FACT_SALE_SQL, _fact_sale_row),
+             output_type=Types.STRING()) \
         .sink_to(kafka_sink_valid)
 
-    tagged \
-        .filter(lambda x: x[0] != VALID) \
-        .map(lambda x: x[1], output_type=Types.STRING()) \
+    invalid_stream \
+        .map(PostgresWriter(ANOMALY_SQL, _anomaly_row),
+             output_type=Types.STRING()) \
         .sink_to(kafka_sink_invalid)
 
     env.execute("ETL Sales Job")
