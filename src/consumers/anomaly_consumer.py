@@ -28,6 +28,7 @@ def _init_table():
                     id SERIAL PRIMARY KEY,
                     sale_id VARCHAR(50) NOT NULL,
                     anomaly_type VARCHAR(50) NOT NULL,
+                    anomaly_code INTEGER,
                     event_timestamp VARCHAR(50),
                     detected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
