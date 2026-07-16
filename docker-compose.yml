@@ -95,6 +95,26 @@ services:
     volumes:
       - pgadmin_data:/var/lib/pgadmin
 
+  grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      - postgres
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_DATABASE_TYPE: postgres
+      GF_DATABASE_HOST: postgres:5432
+      GF_DATABASE_NAME: grafana
+      GF_DATABASE_USER: streammark
+      GF_DATABASE_PASSWORD: streammark
+      GF_DATABASE_SSL_MODE: disable
+    volumes:
+      - grafana_data:/var/lib/grafana
+      # - ./grafana/provisioning:/etc/grafana/provisioning
+
 volumes:
   postgres_data:
   pgadmin_data:
+  grafana_data:
