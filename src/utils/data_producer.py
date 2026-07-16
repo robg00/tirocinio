@@ -18,7 +18,7 @@ def generate_sale(anomaly_type=None):
         "sale_id": sale_id,
         "user_id": random.choice(USERS),
         "product_id": random.choice(PRODUCT_IDS),
-        "quantity": random.randint(1, 5),
+        "quantity": random.randint(3, 10),
         "unit_price": round(random.uniform(5.0, 200.0), 2),
         "total_amount": 0.0,
         "event_timestamp": now,
