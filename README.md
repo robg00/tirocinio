@@ -30,47 +30,48 @@ Principio chiave: **Kafka come unico intermediario** — Flink non scrive mai di
 
 ```
 Tirocinio/
-├── docker-compose.yml               # Orchestrazione (Kafka, Flink, PostgreSQL, Kafka UI, pgAdmin)
-├── pyproject.toml                   # Dipendenze e configurazione
+├── docker-compose.yml                        # Orchestrazione (Kafka, Flink, PostgreSQL, Kafka UI, pgAdmin)
+├── pyproject.toml                            # Dipendenze e configurazione
 ├── config/
-│   ├── products.json                # Catalogo prodotti (24 item, 4 categorie)
-│   └── generator_config.py          # Parametri generazione eventi
+│   ├── products.json                         # Catalogo prodotti (24 item, 4 categorie)
+│   └── generator_config.py                   # Parametri generazione eventi
 ├── scripts/
-│   ├── event_generator.py           # Generatore eventi vendita
-│   └── generate_dashboard.py        # Dashboard HTML (coverage + mutation + test)
+│   ├── event_generator.py                    # Generatore eventi vendita
+│   └── generate_dashboard.py                 # Dashboard HTML (coverage + mutation + test)
 ├── src/
 │   ├── etl/
-│   │   ├── sales_splitter.py        # Logica pura split/validazione/arricchimento
-│   │   ├── pyflink_etl.py           # Job ETL PyFlink (FlatMapFunction + filter + map)
-│   │   ├── pyflink_datastream_anomaly.py  # Job anomalie PyFlink
-│   │   ├── pyflink_aggregation.py   # Job finestra 30s PyFlink
-│   │   └── etl-job.zip              # Archivio per -pyfs Flink
+│   │   ├── sales_splitter.py                 # Logica pura split/validazione/arricchimento
+│   │   ├── postgres_writer.py                # MapFunction per scrittura PostgreSQL via psycopg2
+│   │   ├── pyflink_etl.py                    # Job ETL PyFlink (FlatMapFunction + filter + map)
+│   │   ├── pyflink_datastream_anomaly.py     # Job anomalie PyFlink
+│   │   ├── pyflink_aggregation.py            # Job finestra 30s PyFlink
+│   │   └── etl-job.zip                       # Archivio per -pyfs Flink
 │   └── consumers/
-│       ├── anomaly_consumer.py      # Kafka → PostgreSQL (anomaly_alerts)
-│       ├── fact_sales_consumer.py    # Kafka → PostgreSQL (fact_sales)
-│       └── agg_sales_consumer.py     # Kafka → PostgreSQL (agg_sales_windowed)
+│       ├── anomaly_consumer.py               # Kafka → PostgreSQL (anomaly_alerts)
+│       ├── fact_sales_consumer.py            # Kafka → PostgreSQL (fact_sales)
+│       └── agg_sales_consumer.py             # Kafka → PostgreSQL (agg_sales_windowed)
 ├── sql/
-│   ├── star_schema.sql              # DDL star schema (dim + fact)
-│   └── seed_*.sql                   # Seed dimensioni
+│   ├── star_schema.sql                       # DDL star schema (dim + fact)
+│   └── seed_*.sql                            # Seed dimensioni
 ├── flink/
-│   └── Dockerfile                   # Flink + Python + PyFlink + connector JAR
+│   └── Dockerfile                            # Flink 1.20 + Python + PyFlink + psycopg2
 ├── tests/
 │   ├── unit/etl/
-│   │   ├── test_sales_splitter.py   # 39 test unitari split_event()
-│   │   └── test_split_event_benchmark.py  # Benchmark prestazionali
+│   │   ├── test_sales_splitter.py            # 39 test unitari split_event()
+│   │   └── test_split_event_benchmark.py     # Benchmark prestazionali
 │   ├── system/
-│   │   ├── conftest.py              # Fixture auto job Flink
-│   │   └── test_etl_pipeline_system.py  # 5 test di sistema E2E
+│   │   ├── conftest.py                       # Fixture auto job Flink
+│   │   └── test_etl_pipeline_system.py       # 5 test di sistema E2E
 │   ├── integration/
-│   │   ├── test_system.py           # 7 test connettività Kafka
-│   │   └── test_integration.py      # 6 test generatore
+│   │   ├── test_system.py                    # 7 test connettività Kafka
+│   │   └── test_integration.py               # 6 test generatore
 │   └── quality/
-│       └── test_mutation.py         # Mutation score (soglia 70%)
+│       └── test_mutation.py                  # Mutation score (soglia 70%)
 ├── htmlcov/
-│   └── dashboard.html               # Dashboard risultati test
+│   └── dashboard.html                        # Dashboard risultati test
 └── docs/
-    ├── report.typ                   # Report tecnico (Typst)
-    └── report.pdf                   # Report compilato
+    ├── report.typ                            # Report tecnico (Typst)
+    └── report.pdf                            # Report compilato
 ```
 
 ## Prerequisiti
